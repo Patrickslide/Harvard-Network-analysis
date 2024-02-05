@@ -1,0 +1,421 @@
+---
+title: "Advanced Social Network ANalysis Project"
+author: "Patrick Montanari"
+date: '2022-11-22'
+output:
+  pdf_document: default
+  html_document: default
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+## Setup
+
+```{r setup, include=FALSE}
+setwd("C:/Users/patri/Desktop/PATRICK/Università/Didattica/Corsi/Data Science/Advanced social network analysis/Final Report")
+library(sna)
+library(igraph)
+library(dplyr)
+library(ergm)
+library(ggplot2)
+```
+
+First and foremost, I'll start by opening the various dataframes, and recoding attributes' columns to avoid any confusion with the single elements, each named as V followed by their position in the Seniority Ranking.
+
+Since I'm interested in who people seek advice to and this network provides who each gets it from, I need to transpose the network.
+The ego becomes alter and alter becomes ego.
+
+```{r}
+lawyersADV <- read.table("ELadv.dat")    # Did you go to him for professional advice in the past year? 
+lawyersADVm <- as.matrix(t(as.matrix(lawyersADV))) #Reverse the matrix
+
+index <- seq(1,71)
+colnames(lawyersADVm) <- index
+#Did they come to you for professional advice in the past year? 
+
+
+Advice <- as.network(lawyersADVm, directed = T)
+
+lawyersFr <- read.table("ELfriend.dat")  #Are the 2 friends?
+lawyersFr <- as.matrix(lawyersFr)
+Friends <- as.network(lawyersFr, directed = F)
+
+lawyersWo <- read.table("ELwork.dat")    #Are the 2 co-workers?
+lawyersWo <- as.matrix(lawyersWo)
+Work <- as.network(lawyersWo, directed = F)
+
+```
+
+## Data Recoding
+
+I add all attributes to the main network for easiness of reference.
+
+```{r}
+lawyersAttr <- read.table("ELattr.dat") 
+lawyersAttr <- lawyersAttr %>% rename(Seniority = V1, Status = V2, Gender = V3, Office = V4, 
+                                      Years = V5, Age = V6, Practice = V7, Education = V8) 
+
+Advice %v% "status" <- lawyersAttr$Status
+Advice %v% "seniority_rank" <- lawyersAttr$Seniority
+Advice %v% "Office" <- lawyersAttr$Office
+Advice %v% "Gender" <- lawyersAttr$Gender
+Advice %v% 'practice' <- lawyersAttr$Practice
+```
+
+Then, I isolate the two main categories as for each aspect, I'll produce three networks: the general one, one only considering associates and one only considering partners.
+
+```{r}
+partners <- lawyersAttr[lawyersAttr$Status==1,]
+partners_index <- partners$Seniority
+
+associates <- lawyersAttr[lawyersAttr$Status==2,]
+associates_index <- associates$Seniority
+
+```
+
+Now I also create a list of corresponding nodes, each named as V + index number.
+
+```{r}
+associates_Nindex <- c()
+for (i in associates_index) {
+  associates_Nindex <- append(associates_Nindex, i)
+}
+
+partners_Nindex <- c()
+for (i in partners_index) {
+  partners_Nindex <- append(partners_Nindex, i)
+}
+```
+
+## 1) Advice network
+
+Do members of the same category are more likely to turn to one another by measuring the density of relationships of all 3.
+As advices are always asked to another node, the directed form is more appropriate.
+
+```{r}
+lawyersADV_g <- gplot(Advice, displaylabels=TRUE, gmode="digraph",
+                          mode="kamadakawai",                  vertex.col =2+(lawyersAttr$Status==1)*2)
+sprintf('Density: %f', gden(lawyersADV))
+```
+
+```{r}
+associates_ADV <- as.network(lawyersADVm[associates_index, associates_Nindex], directed=T)
+#associates_ADV_g <- gplot(associates_ADV, displaylabels=TRUE, gmode="digraph",
+#                          mode="kamadakawai",                  vertex.col ="red")
+sprintf('Associates advice network density: %f', gden(associates_ADV))
+```
+
+```{r}
+partners_ADV <- as.network(lawyersADVm[partners_index, partners_Nindex], directed = T)
+#partners_ADV_g <- gplot(partners_ADV, displaylabels=TRUE, gmode="digraph",
+#                          mode="kamadakawai",                  vertex.col ="blue")
+sprintf('Partners advice network density: %f', gden(partners_ADV))
+```
+
+The main reason behind the choice of Kamadakawai as the graph's mode is that it highlights isolated nodes, allowing us to notice if there is any recurring trend.
+
+What we can see is that Partners are more likely to ask for advice one another compared to associates.
+Since the general network is the lowest, we can deduce that sharing the same status partly influences behavior when seeking advice.
+
+## 2) Friendship network
+
+This time the network is undirected, as I assume that to be friends two individuals need to hold both a form of respect and appreciation toward one another.
+For this specific network I'm interested in also seeing the level of connectedness.
+
+```{r}
+lawyersFr_p <- gplot(Friends, gmode='graph', mode='kamadakawai',displaylabels=TRUE,                     vertex.col = 2+(lawyersAttr$Status==1)*2)
+
+sprintf('Friends network Density: %f', gden(lawyersFr))
+sprintf('Friends network Reciprocity: %f', grecip(lawyersFr))
+sprintf('Friends network Connectedness: %f', connectedness(lawyersFr))
+```
+
+```{r}
+ass_Fr <- as.network(lawyersFr[associates_index, associates_Nindex])
+#ass_Fr_p <- gplot(ass_Fr, gmode='graph', mode='kamadakawai',displaylabels=TRUE, vertex.col = 'red')
+
+sprintf('Associates friends network Density: %f', gden(ass_Fr))
+sprintf('Associates friends network Reciprocity: %f', grecip(ass_Fr))
+sprintf('Associates friends network Connectedness: %f', connectedness(ass_Fr))
+
+```
+
+```{r}
+part_Fr <- as.network(lawyersFr[partners_index, partners_Nindex])
+#part_Fr_p <- gplot(part_Fr, gmode='graph', mode='kamadakawai',displaylabels=TRUE, vertex.col = 'blue')
+#
+sprintf('Partners friends network density: %f', gden(part_Fr))
+sprintf('Partners friends network reciprocity: %f', grecip(ass_Fr))
+sprintf('Partners friends network connectedness: %f', connectedness(part_Fr))
+```
+
+Once again, friendships are more frequent between partners, maybe also due to having had more years to connect and develop relationships with one another (proved by the reciprocity value being consistently above 90%).
+This time however, the general has a lower score, meaning that social dynamics are more strongly influenced by one's position.
+
+Associates aren't as connected, meaning that some individuals are only able to reach one another by involving specific lawyers belonging to the partner class.
+Conversely, all partners are connected but the general scheme lacks some optimal paths between nodes (maybe also due to the higher size implications).
+
+## 3) Work Network
+
+This is also an undirected network, as being co-workers implies complicity and reciprocity.
+Here, I also want to see the level of cohesion (due to professional involvement), expressed by the average reciprocal distance between nodes.
+To ease computations I recoded infinte values assigning 1, which rapresents the highest relative distance.
+
+```{r}
+lawyersWo_p <- gplot(Work, displaylabels=TRUE, gmode="graph", mode="kamadakawai", 
+                     vertex.col = 2+(lawyersAttr$Status==1)*2)
+sprintf("Work network density: %f", gden(lawyersWo))
+sprintf("Work network reciprocity: %f", grecip(lawyersWo))
+lawyers_geod <- 1/sna::geodist(lawyersWo)$gdist
+lawyers_geod[which(!is.finite(lawyers_geod))] <- 1        #Replace Infinite with 1, max distance.
+diag(lawyers_geod) <- 0
+avg_dist1 <- 1 - mean(lawyers_geod)
+sprintf("Work network average distance: %f", avg_dist1)
+```
+
+```{r}
+ass_Wo <- as.network(lawyersWo[associates_index, associates_Nindex])
+#ass_Wo_p <- gplot(ass_Wo, displaylabels=TRUE, gmode="graph", mode="kamadakawai", vertex.col = "red")
+sprintf("Work associates network Density: %f", gden(ass_Wo))
+sprintf("Work associates network Reciprocity: %f", grecip(ass_Wo))
+
+ass_w_geod <- 1/sna::geodist(ass_Wo)$gdist
+ass_w_geod[which(!is.finite(ass_w_geod))] <- 1        #Replace Infinite with 1, max distance.
+diag(ass_w_geod) <- 0
+avg_dist2 <-1 - mean(ass_w_geod)
+sprintf("Work associates network Average distance: %f", avg_dist2)
+```
+
+```{r}
+part_Wo <- as.network(lawyersWo[partners_index, partners_Nindex])
+#part_Wo_p <- gplot(part_Wo, displaylabels=TRUE, gmode="graph", mode="kamadakawai", vertex.col = "blue")
+sprintf("Work partners network Density: %f", gden(part_Wo))
+sprintf("Work partners network Reciprocity: %f", grecip(part_Wo))
+part_geod <- 1/sna::geodist(part_Wo)$gdist
+part_geod[which(!is.finite(part_geod))] <- 1
+diag(part_geod) <- 0
+avg_dist3 <- 1 - mean(part_geod)
+sprintf("Work partners network Average distance: %f", avg_dist3)
+```
+
+Once again, partners have more work relationships, as their expertise may result in being involved in more projects and, as a consequence, more frequently leads to work with one another.
+The very low density for associates doesn't surprise me, as associates are probably often accompanied by a more experienced colleague to ensure the work is carried through properly.
+The node #8 seem to be the only one who hasn't worked with anyone else in the past year.
+
+Even more so than with the last one, reciprocity holds for the work network as it has more of a clear definition compared to friendship, which leaves room for a margin of ambiguity.
+As I would have imagined, associates tend to have an higher average geodesic distance.
+
+## 4) ERGM
+
+#### Model 1
+
+I will run a general ERGM model, considering edges and number of 2-stars (istar, as network is directed).
+I tried using different types of interactions for this variable, keeping only the one i consider to be most effective based on coefficient and p-value.
+The node covariance is there as I wanted to see how high are they ranked compared to each other, instead of just considering the absolute difference in the ranking.
+
+You should use edgecov, as in undirected networks it doesn't matter.
+Using edgecov I am able to check whether having ties with another nodes in other networks has a positive or negative impact on the likelihood of forming ties.
+The choice was between edgecov (directed form) and dyadcov (undirected form); since for undirected networks they are equivalent, I decided to go for edgecov as my dependent variable is in directed form.
+
+```{r}
+m1Adv <- ergm(Advice~edges+istar(2) +nodematch('Gender') + nodematch('Office') + nodeicov("seniority_rank") + nodefactor('status') +nodematch('status') + nodematch('practice') + edgecov(Work)+edgecov(Friends))
+
+summary(m1Adv)
+```
+
+A positive value for the istar terms means that people are more likely to seek advice from you if you have other connections.Ostar terms would refer to ties with nodes with lots of connections; the lower value might be because those with more alternatives might be less likely to seek advice from you.
+Unfortunately, I wasn't able to implement the ostar term, as it showed me this error message: "Unconstrained MCMC sampling did not mix at all. Optimization cannot continue."
+
+Seniority rank covariance has a positive coefficient, meaning that those of a lower seniority rank are more likely to ask to those of a higher seniority rank above you.
+Being part of the associates group, however, lowers likelihood of asking for advice to that person.
+Belonging to the same gender, stauts and even more so to the same office also have a positive impact in determining when someone else will turn to you for advice.
+Obviously, those who work in the same field are more likely to ask one another for advice; unsurprisingly it has much more impact than status.
+
+My hypothesis turned out to be true, as both friends and co-workers are more likely to ask each other for advice.
+I'll describe it more extensively later.
+
+##### Probabilities
+
+We can also see the probability of a ties, turning log-odds into odd ratios:
+
+```{r}
+edges_p <- as.numeric((coef(m1Adv)['edges']))
+reg_p <- exp(edges_p)/(1 + exp(edges_p))
+sprintf('Standard probability: %f', reg_p)
+
+match_p <- as.numeric((coef(m1Adv)['edges']))+as.numeric((coef(m1Adv)['nodematch.Gender']))+
+  as.numeric((coef(m1Adv)['nodematch.Office'])) + as.numeric((coef(m1Adv)['nodematch.status']))+
+   as.numeric((coef(m1Adv)['nodematch.practice']))
+e_match_p <- exp(match_p)/(1 + exp(match_p))
+sprintf('Probability if sharing Gender, Office, status and work field: %f', e_match_p)
+
+match_w <- as.numeric((coef(m1Adv)['edges']))+as.numeric((coef(m1Adv)['edgecov.Work']))
+e_match_w <- exp(match_w)/(1 + exp(match_w)) 
+sprintf('Probability if coworkers: %f', e_match_w)
+
+match_f <- as.numeric((coef(m1Adv)['edges']))+as.numeric((coef(m1Adv)['edgecov.Friends']))
+e_match_f <- exp(match_f)/(1 + exp(match_f)) 
+sprintf('Probability if friends: %f', e_match_f)
+
+match_t <- as.numeric((coef(m1Adv)['edges']))+as.numeric((coef(m1Adv)['nodematch.Gender']))+
+  as.numeric((coef(m1Adv)['nodematch.Office'])) + as.numeric((coef(m1Adv)['nodematch.status']))+
+   as.numeric((coef(m1Adv)['nodematch.practice']))+as.numeric((coef(m1Adv)['edgecov.Friends']))+
+  as.numeric((coef(m1Adv)['edgecov.Work']))
+e_match_t <- exp(match_t)/(1 + exp(match_t))
+sprintf('Probability if sharing all attributes being coworkers and friends: %f', e_match_t)
+
+```
+
+As we can see, having traits in common strongly increases the likelihood, with the attributes amounting up to 10% of likelihood.
+Being friends and or co-workers also helps, with work as the primary factor.
+Two individuals of same characteristics who are friends and coworkers have a 77.16% chance of asking for advice one another.
+
+##### Goodness of fit
+
+Now, I will perform a convergence test to see the goodness of fit, with 500 iterations.
+
+```{r}
+gof.choices  <- control.gof.ergm(nsim=500)
+gof_check <- gof(m1Adv, GOF=~model, control = gof.choices)
+gof_check$summary.model
+
+```
+
+All values are above 0.9, with practice being the only exception.
+
+#### Model 2
+
+Now, I will build 1 more models, only considering partner nodes and their attributes.
+I will remove the status factor as all members will necessarily share it by selection criterion.
+For this second model I also decided to include a side network, where respondents listed all those who listened to them during work meetings (which sadly was only available for partners), which I will include in the model as I believe it to be worth considering.
+I consider it as directed.
+It wasn't included in the original sources, thus the difference naming.
+
+```{r}
+partners_list <- read.table('lawyers_listening.dat')
+partners_list <- as.matrix(partners_list)
+Listeners_p <- as.network(partners_list,directed=T)
+
+partners_listf <- read.table('ELfriend36.dat')
+partners_listf <- as.matrix(partners_listf)
+Partners_friend <- as.network(partners_listf,directed=F)
+
+partners_listw <- read.table('ELwork36.dat')
+partners_listw <- as.matrix(partners_listw)
+Partners_work <- as.network(partners_listw,directed=F)
+
+
+partners_ADV %v% "status" <- lawyersAttr$Status[1:36]
+partners_ADV %v% "seniority_rank" <- lawyersAttr$Seniority[1:36]
+partners_ADV %v% "Office" <- lawyersAttr$Office[1:36]
+partners_ADV %v% "Gender" <- lawyersAttr$Gender[1:36]
+partners_ADV %v% 'practice' <- lawyersAttr$Practice[1:36]
+
+```
+
+```{r}
+m2_part_Adv <- ergm(partners_ADV~edges+istar(2) +nodematch('Gender') + nodematch('Office') +                            nodeicov("seniority_rank") + nodematch('practice') +edgecov(Partners_friend) +edgecov(Partners_work) + edgecov(Listeners_p))
+
+summary(m2_part_Adv)
+```
+
+The results are very similar to the first model; gender seem to be less important among partners, maybe due to work experience reducing gender-based discrimination towards colleagues.
+Listening to each other does not have the impact I imagined it would have, but it still affects the outcome.
+Removing the status factor altered other independent variable's coefficients but the relative proportion remained almost the same.
+
+##### Probabilities
+
+```{r}
+edges_p2 <- as.numeric((coef(m2_part_Adv)['edges']))
+reg_p2 <- exp(edges_p2)/(1 + exp(edges_p2))
+sprintf('Standard probability: %f', reg_p2)
+
+match_p <- as.numeric((coef(m2_part_Adv)['edges']))+as.numeric((coef(m2_part_Adv)['nodematch.Gender']))+
+  as.numeric((coef(m2_part_Adv)['nodematch.Office'])) + as.numeric((coef(m2_part_Adv)['nodematch.practice']))
+e_match_p <- exp(match_p)/(1 + exp(match_p))
+sprintf('Probability if sharing Gender, Office and work field: %f', e_match_p)
+
+match_w <- as.numeric((coef(m2_part_Adv)['edges']))+as.numeric((coef(m2_part_Adv)['edgecov.Partners_work']))
+e_match_w <- exp(match_w)/(1 + exp(match_w)) 
+sprintf('Probability if coworkers: %f', e_match_w)
+
+match_f <- as.numeric((coef(m2_part_Adv)['edges']))+as.numeric((coef(m2_part_Adv)['edgecov.Partners_friend']))
+e_match_f <- exp(match_f)/(1 + exp(match_f)) 
+sprintf('Probability if friends: %f', e_match_f)
+
+match_t <- as.numeric((coef(m2_part_Adv)['edges']))+as.numeric((coef(m2_part_Adv)['nodematch.Gender']))+
+  as.numeric((coef(m2_part_Adv)['nodematch.Office'])) + as.numeric((coef(m2_part_Adv)['nodematch.practice'])) + as.numeric((coef(m2_part_Adv)['edgecov.Partners_friend']))+ as.numeric((coef(m2_part_Adv)['edgecov.Partners_work'])) + 
+as.numeric((coef(m2_part_Adv)['edgecov.Listeners_p']))
+e_match_t <- exp(match_t)/(1 + exp(match_t))
+sprintf('Probability if sharing all attributes and networks ties: %f', e_match_t)
+
+
+```
+
+Once again, having traits in common strongly increases the likelihood, with the attributes amounting up to 12% of likelihood.
+Being friends and or co-workers have higher coefficients this time, work remains more crucial.
+Two individuals of same characteristics who are friends and coworkers have a 72.64% chance of asking for advice one another.
+
+##### Goodness of fit
+
+Now, I will perform another convergence test to see the goodness of fit, again with 500 iterations.
+
+```{r}
+gof.choices  <- control.gof.ergm(nsim=500)
+gof_check <- gof(m2_part_Adv, GOF=~model, control = gof.choices)
+gof_check$summary.model
+
+```
+
+All values are above 0.9, with practice being the only exception just like previously.
+The values are much more closer to 1 this time, maybe also due to the smaller sample size.
+
+## 6) Graphs
+
+#### Density Plot
+
+```{r}
+density <- c(gden(partners_ADV),gden(associates_ADV), gden(lawyersADV),
+             gden(part_Wo), gden(ass_Wo), gden(lawyersWo),
+             gden(part_Fr), gden(ass_Fr), gden(lawyersFr))
+group <- c('partners','associates','general','partners','associates','general','partners','associates','general')
+network <- c('advice', 'advice', 'advice', 'work', 'work', 'work', 'friends', 'friends', 'friends')
+
+density_data <- data.frame(density, group, network)
+
+barplot <- ggplot(density_data, aes(x = density, fill = network, y =group)) + 
+  geom_bar(stat="identity", color='black', position=position_dodge())  +
+  scale_fill_brewer(palette="Spectral")
+barplot 
+```
+
+#### Distance Plot
+
+```{r}
+distance <- c(avg_dist1, avg_dist2, avg_dist3)
+group <- c('general', 'associates', 'partners')
+
+distance_data <- data.frame(distance, group)
+
+workplot <- ggplot(distance_data, aes(x = group, y = distance, fill=group)) + 
+  geom_bar(stat="identity")  + scale_fill_brewer(palette="Blues") + theme_minimal() +
+  labs(x='sub-group', y='Average distance', title='Work network Average distance by status')+
+  theme(legend.position = "none")
+workplot
+```
+
+#### Connectedness Plot
+
+```{r}
+conn <- c( connectedness(lawyersFr),  connectedness(ass_Fr), connectedness(part_Fr))
+group <- c('general', 'associates', 'partners')
+
+conn_data <- data.frame(conn, group)
+
+friendplot <- ggplot(conn_data, aes(x = group, y = conn, fill=group)) + 
+  geom_bar(stat="identity")  + scale_fill_brewer(palette="Oranges") + theme_minimal() +
+  labs(x='sub-group', y='Connectedness', title='Friends network connectedness value by status')+
+  theme(legend.position = "none")
+friendplot
+```
