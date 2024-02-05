@@ -1,5 +1,5 @@
 ---
-title: "Advanced Social Network ANalysis Project"
+title: "Advanced Social Network Analysis Project"
 author: "Patrick Montanari"
 date: '2022-11-22'
 output:
